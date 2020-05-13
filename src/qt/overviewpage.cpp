@@ -23,9 +23,11 @@
 #include "amount.h"
 #include "validation.h"
 #include "wallet/wallet.h"
+#include "net.h"
 
 #include "instantx.h"
 #include "masternode-sync.h"
+#include "masternodelist.h"
 
 
 #include <QAbstractItemDelegate>
@@ -42,7 +44,6 @@
 #define NUM_ITEMS 5
 #define NUM_ITEMS_ADV 7
 
-
 #include "overviewpage.moc"
 
 OverviewPage::OverviewPage(const PlatformStyle *platformStyle, QWidget *parent) :
@@ -58,7 +59,7 @@ OverviewPage::OverviewPage(const PlatformStyle *platformStyle, QWidget *parent) 
     currentWatchOnlyBalance(-1),
     currentWatchUnconfBalance(-1),
     currentWatchImmatureBalance(-1),
-    cachedNumISLocks(-1)
+    cachedNumISLocks(-1) 
     
 {
                
@@ -68,20 +69,25 @@ OverviewPage::OverviewPage(const PlatformStyle *platformStyle, QWidget *parent) 
      
     ui->pushButton_Website->setStatusTip(tr("Visit Help The Homeless Worldwide A NJ Nonprofit Corporation"));
     ui->pushButton_Website_1->setStatusTip(tr("Visit Help The Homeless Coin"));
-    ui->pushButton_Website_2->setStatusTip(tr("Visit AltMarkets.io To Trade Help The Homeless Coin"));
-    ui->pushButton_Website_3->setStatusTip(tr("Visit Open Chainz To See the Help The Homeless Coin Explorer"));  
+    ui->pushButton_Website_2->setStatusTip(tr("Visit AltMarkets.io to trade Help The Homeless Coin"));
+    ui->pushButton_Website_3->setStatusTip(tr("Visit Open Chainz to see the Help The Homeless Coin Explorer"));  
     ui->pushButton_Website_4->setStatusTip(tr("Visit Help The Homeless Worldwide A NJ Nonprofit Corporation Partners"));
-    ui->pushButton_Website_5->setStatusTip(tr("Visit Northern Exchange to Trade Help The Homeless Coin"));  
+    ui->pushButton_Website_5->setStatusTip(tr("Visit AltMarkets.io to trade Help The Homeless Coin"));  
         
     // init "out of sync" warning labels
     ui->labelWalletStatus->setText("(" + tr("out of sync") + ")");
   
     //information block update
    
+    timerinfo_mn = new QTimer(this);
+    connect(timerinfo_mn, SIGNAL(timeout()), this, SLOT(updateMasternodeInfo()));
+    timerinfo_mn->start(1000);  
+      
     timerinfo_blockchain = new QTimer(this);
     connect(timerinfo_blockchain, SIGNAL(timeout()), this, SLOT(updateBlockChainInfo()));
     timerinfo_blockchain->start(1000); //30sec      
-              
+      
+                  
     // start with displaying the "out of sync" warnings
     showOutOfSyncWarning(true);
 
@@ -112,13 +118,13 @@ void OverviewPage::setBalance(const CAmount& balance, const CAmount& unconfirmed
     ui->labelBalance->setText(BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, balance, false, BitcoinUnits::separatorAlways));
     ui->labelUnconfirmed->setText(BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, unconfirmedBalance, false, BitcoinUnits::separatorAlways));
     ui->labelImmature->setText(BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, immatureBalance, false, BitcoinUnits::separatorAlways));
- /*   ui->labelAnonymized->setText(BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, anonymizedBalance, false, BitcoinUnits::separatorAlways)); */
+    ui->labelUnconfirmed->setText(BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, anonymizedBalance, false, BitcoinUnits::separatorAlways));
     ui->labelTotal->setText(BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, balance + unconfirmedBalance + immatureBalance, false, BitcoinUnits::separatorAlways));
     ui->labelWatchAvailable->setText(BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, watchOnlyBalance, false, BitcoinUnits::separatorAlways));
     ui->labelWatchPending->setText(BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, watchUnconfBalance, false, BitcoinUnits::separatorAlways));
     ui->labelWatchImmature->setText(BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, watchImmatureBalance, false, BitcoinUnits::separatorAlways));
     ui->labelWatchTotal->setText(BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, watchOnlyBalance + watchUnconfBalance + watchImmatureBalance, false, BitcoinUnits::separatorAlways));
-
+    
     // only show immature (newly mined) balance if it's non-zero, so as not to complicate things
     // for the non-mining users
     bool showImmature = immatureBalance != 0;
@@ -128,16 +134,6 @@ void OverviewPage::setBalance(const CAmount& balance, const CAmount& unconfirmed
     ui->labelImmature->setVisible(showImmature || showWatchOnlyImmature);
     ui->labelImmatureText->setVisible(showImmature || showWatchOnlyImmature);
     ui->labelWatchImmature->setVisible(showWatchOnlyImmature); // show watch-only immature balance
-
-  /*  updatePrivateSendProgress(); */
-
-    if (walletModel) {
-        int numISLocks = walletModel->getNumISLocks();
-        if(cachedNumISLocks != numISLocks) {
-            cachedNumISLocks = numISLocks;
-         /*   ui->listTransactions->update(); */
-        }
-    }
 }
 
 // show/hide watch-only labels
@@ -156,7 +152,7 @@ void OverviewPage::updateWatchOnlyLabels(bool showWatchOnly)
     else{
         ui->labelBalance->setIndent(20);
         ui->labelUnconfirmed->setIndent(20);
-        ui->labelImmature->setIndent(20);
+        ui->labelImmatureText->setIndent(20);
         ui->labelTotal->setIndent(20);
     }
 }
@@ -167,8 +163,8 @@ void OverviewPage::setClientModel(ClientModel *model)
     if(model)
     {
         // Show warning if this is a prerelease version
-     /*   connect(model, SIGNAL(alertsChanged(QString)), this, SLOT(updateAlerts(QString)));
-        updateAlerts(model->getStatusBarWarnings()); */
+       /* connect(model, SIGNAL(alertsChanged(QString)), this, SLOT(updateAlerts(QString)));
+         updateAlerts(model->getStatusBarWarnings()); */
     }
 }
 
@@ -177,7 +173,7 @@ void OverviewPage::setWalletModel(WalletModel *model)
     this->walletModel = model;
     if(model && model->getOptionsModel())
     {
-        // update the display unit, to not use the default ("DASH")
+        // update the display unit, to not use the default ("HTH")
         updateDisplayUnit();
         // Keep up to date with wallet
         setBalance(model->getBalance(), model->getUnconfirmedBalance(), model->getImmatureBalance(), model->getAnonymizedBalance(),
@@ -186,10 +182,11 @@ void OverviewPage::setWalletModel(WalletModel *model)
 
         connect(model->getOptionsModel(), SIGNAL(displayUnitChanged(int)), this, SLOT(updateDisplayUnit()));
         updateWatchOnlyLabels(model->haveWatchOnly());
-        connect(model, SIGNAL(notifyWatchonlyChanged(bool)), this, SLOT(updateWatchOnlyLabels(bool)));
-
+        connect(model, SIGNAL(notifyWatchonlyChanged(bool)), this, SLOT(updateWatchOnlyLabels(bool)));    
     }
 }
+
+
 
 void OverviewPage::updateDisplayUnit()
 {
@@ -203,16 +200,22 @@ void OverviewPage::updateDisplayUnit()
     }
 }
 
+/**** Blockchain Information *****/
 
-void OverviewPage::showOutOfSyncWarning(bool fShow)
+
+ void OverviewPage::updateMasternodeInfo()
 {
-    ui->labelWalletStatus->setVisible(fShow);  
-
- /*   ui->labelTransactionsStatus->setVisible(fShow);  */
+  if (masternodeSync.IsBlockchainSynced() && masternodeSync.IsSynced())
+  {
+          (timerinfo_mn->interval() == 1000);
+           timerinfo_mn->setInterval(180000);
+        
+           int MNCount = clientModel->getNumConnections();
+           ui->label_count_2->setText(QString::number(MNCount));
+  }
 }
-    
-    
-    /**** Blockchain Information *****/
+
+/* txt += tr("<li>Master Nodes <span> %1</span><br> </li>").arg( clientModel->getNumConnections()); */
 
 void OverviewPage::updateBlockChainInfo()
 {
@@ -230,12 +233,20 @@ void OverviewPage::updateBlockChainInfo()
        /*ui->label_CurrentBlockReward_value_3->setText(QString::number(BlockRewardHTH, 'f', 1)); */
        /* ui->label_CurrentBlock_value_3->setText(QString::number(block24hCount)); */
   
+  
     }
 }
 
                 /**** End Blockchain Information ******/
 
 
+
+void OverviewPage::showOutOfSyncWarning(bool fShow)
+{
+    ui->labelWalletStatus->setVisible(fShow);  
+
+ /*   ui->labelTransactionsStatus->setVisible(fShow);  */
+}
 
 /************** HTH Worldwide Button ******************/
  
